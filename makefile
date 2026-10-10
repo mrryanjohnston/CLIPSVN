@@ -210,8 +210,16 @@ ifeq ($(SVN_SYSTEM),1)
   APU_CONFIG  ?= apu-1-config
   SVN_CFLAGS  ?= $(shell $(PKG_CONFIG) --cflags libsvn_client 2>/dev/null \
                          || echo "-I/usr/include/subversion-1 $$($(APR_CONFIG) --includes 2>/dev/null)")
-  SVN_LDLIBS  ?= $(shell $(PKG_CONFIG) --libs libsvn_client libsvn_repos libsvn_fs libsvn_ra libsvn_subr 2>/dev/null \
-                         || echo "-lsvn_client-1 -lsvn_repos-1 -lsvn_fs-1 -lsvn_ra-1 -lsvn_delta-1 -lsvn_subr-1 $$($(APU_CONFIG) --link-ld 2>/dev/null) $$($(APR_CONFIG) --link-ld 2>/dev/null)")
+  # Debian and Ubuntu put the libraries that libsvn_subr itself links
+  # (expat, zlib, LZ4, utf8proc) on the public Libs line of libsvn_subr.pc,
+  # and libsvn-dev does not depend on their -dev packages. A dynamic link
+  # against libsvn_subr-1.so does not need them, and the wrappers do not
+  # call them, so they are removed: "-lutf8proc" would otherwise fail the
+  # link on a machine without libutf8proc-dev.
+  SVN_PRIVATE_LIBS := -lexpat -lz -llz4 -lutf8proc
+  SVN_LDLIBS  ?= $(filter-out $(SVN_PRIVATE_LIBS), \
+                   $(shell $(PKG_CONFIG) --libs libsvn_client libsvn_repos libsvn_fs libsvn_ra libsvn_subr 2>/dev/null \
+                         || echo "-lsvn_client-1 -lsvn_repos-1 -lsvn_fs-1 -lsvn_ra-1 -lsvn_delta-1 -lsvn_subr-1 $$($(APU_CONFIG) --link-ld 2>/dev/null) $$($(APR_CONFIG) --link-ld 2>/dev/null)"))
   SVN_DEP     :=
   SVN_ORIGIN  := the Subversion this machine has
 else
