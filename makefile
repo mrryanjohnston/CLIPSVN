@@ -218,8 +218,8 @@ ifeq ($(SVN_SYSTEM),1)
   # link on a machine without libutf8proc-dev.
   SVN_PRIVATE_LIBS := -lexpat -lz -llz4 -lutf8proc
   SVN_LDLIBS  ?= $(filter-out $(SVN_PRIVATE_LIBS), \
-                   $(shell $(PKG_CONFIG) --libs libsvn_client libsvn_repos libsvn_fs libsvn_ra libsvn_subr 2>/dev/null \
-                         || echo "-lsvn_client-1 -lsvn_repos-1 -lsvn_fs-1 -lsvn_ra-1 -lsvn_delta-1 -lsvn_subr-1 $$($(APU_CONFIG) --link-ld 2>/dev/null) $$($(APR_CONFIG) --link-ld 2>/dev/null)"))
+                   $(shell $(PKG_CONFIG) --libs libsvn_client libsvn_repos libsvn_fs libsvn_ra libsvn_diff libsvn_subr 2>/dev/null \
+                         || echo "-lsvn_client-1 -lsvn_repos-1 -lsvn_fs-1 -lsvn_ra-1 -lsvn_diff-1 -lsvn_delta-1 -lsvn_subr-1 $$($(APU_CONFIG) --link-ld 2>/dev/null) $$($(APR_CONFIG) --link-ld 2>/dev/null)"))
   SVN_DEP     :=
   SVN_ORIGIN  := the Subversion this machine has
 else
