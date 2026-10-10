@@ -1,0 +1,227 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A new push to a branch makes the run that is in progress for it unnecessary.
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # The build that the README describes first: the pinned Subversion, APR,
+  # APR-util and SQLite are downloaded, checked, and built statically. Then
+  # the suite, the examples, valgrind, and an install into a temporary
+  # prefix.
+  vendored:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install what the build needs
+        run: sudo apt-get update && sudo apt-get install -y zlib1g-dev libexpat1-dev valgrind
+
+      # Never cache a build tree. vendor/clips-build holds object files. Their
+      # timestamps would come back older than the sources of a new checkout,
+      # and the CLIPS sub-make would skip work that it must do. The tarballs,
+      # the clean CLIPS source, and the installed Subversion are useful to
+      # cache: the installed prefix is used as it is if it is populated.
+      - name: Cache the downloads and the vendored Subversion
+        uses: actions/cache@v4
+        with:
+          path: |
+            vendor/*.tar.bz2
+            vendor/*.tar.gz
+            vendor/svn-*
+            clips_core_source_642.tar.gz
+            vendor/clips-source
+          key: deps-${{ runner.os }}-${{ hashFiles('makefile') }}
+          restore-keys: deps-${{ runner.os }}-
+
+      - name: Build
+        run: make
+
+      - name: Report what it built against
+        run: |
+          make print-clips
+          printf '(println "Subversion " (svn-version))\n(println (svn-ra-modules))\n(exit)\n' > version.bat
+          ./vendor/clips/clips -f2 version.bat
+
+      # A static check of the sources, so it runs before the suite. An API.md
+      # that is not current gives a faster and clearer failure than the tests
+      # would.
+      - name: Check API.md is current
+        run: make docs-check
+
+      - name: Run the test suite and the examples
+        run: make test
+
+      # The same suite again under valgrind. There, a wrapper that reads freed
+      # memory on its way to the correct return value is not a pass.
+      - name: Run the in-process suite under valgrind
+        run: make test-valgrind
+
+      # "make install" is the one path in the README that no other step tests.
+      # A temporary PREFIX shows that the wrapper is generated, is on PATH,
+      # and can run a real script without vendor/. Subversion is inside the
+      # binary, so nothing else is necessary.
+      - name: Install into a temporary prefix
+        run: |
+          set -eux
+          prefix="$(mktemp -d)"
+          make install PREFIX="$prefix"
+          test -x "$prefix/bin/CLIPSVN"
+          "$prefix/bin/CLIPSVN" --version
+          printf '(println "Subversion " (svn-version))\n(exit)\n' > /tmp/version.bat
+          mv vendor vendor.hidden
+          "$prefix/bin/CLIPSVN" -f2 /tmp/version.bat
+          mv vendor.hidden vendor
+          make uninstall PREFIX="$prefix"
+          test ! -e "$prefix/bin/CLIPSVN"
+
+  # Every supported Subversion release, end to end. Each leg is one set of
+  # tarballs. So the legs are split across the matrix, not run one after the
+  # other as test-versions.sh does locally.
+  releases:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    strategy:
+      fail-fast: false
+      matrix:
+        svn: ['1.14.3', '1.14.4', '1.14.5']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install what the build needs
+        run: sudo apt-get update && sudo apt-get install -y zlib1g-dev libexpat1-dev
+
+      - name: Cache the downloads and the vendored Subversion
+        uses: actions/cache@v4
+        with:
+          path: |
+            vendor/*.tar.bz2
+            vendor/*.tar.gz
+            vendor/svn-${{ matrix.svn }}
+            clips_core_source_642.tar.gz
+            vendor/clips-source
+          key: svn-${{ matrix.svn }}-${{ runner.os }}-${{ hashFiles('makefile') }}
+
+      - name: Build against Subversion ${{ matrix.svn }}
+        run: make SVN_VERSION=${{ matrix.svn }}
+
+      - name: Run the test suite and the examples
+        run: make SVN_VERSION=${{ matrix.svn }} test
+
+  # Every CLIPS that the wrappers build against: the 6.4.2 release and the two
+  # Subversion branches at the revisions that the makefile pins. The
+  # interpreter is the variable here, so one Subversion (the pinned one)
+  # serves all three.
+  clips:
+    name: clips (${{ matrix.clips }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    strategy:
+      fail-fast: false
+      matrix:
+        clips: ['6.4.2', svn-6x, svn-7x]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install what the build needs
+        run: sudo apt-get update && sudo apt-get install -y zlib1g-dev libexpat1-dev subversion
+
+      - name: Cache the downloads and the vendored Subversion
+        uses: actions/cache@v4
+        with:
+          path: |
+            vendor/*.tar.bz2
+            vendor/*.tar.gz
+            vendor/svn-*
+            clips_core_source_642.tar.gz
+            vendor/clips-source
+          key: clips-${{ matrix.clips }}-${{ runner.os }}-${{ hashFiles('makefile') }}
+          restore-keys: clips-${{ matrix.clips }}-${{ runner.os }}-
+
+      - name: Build against CLIPS ${{ matrix.clips }}
+        run: make CLIPS_VERSION=${{ matrix.clips }}
+
+      - name: Report what it built against
+        run: make print-clips CLIPS_VERSION=${{ matrix.clips }}
+
+      - name: Run the test suite and the examples
+        run: make CLIPS_VERSION=${{ matrix.clips }} test
+
+  # Coverage is about userfunctions.c, not about the library under it. So it
+  # runs against the defaults only.
+  coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install what the build needs
+        run: sudo apt-get update && sudo apt-get install -y zlib1g-dev libexpat1-dev
+
+      - name: Cache the downloads and the vendored Subversion
+        uses: actions/cache@v4
+        with:
+          path: |
+            vendor/*.tar.bz2
+            vendor/*.tar.gz
+            vendor/svn-*
+            clips_core_source_642.tar.gz
+            vendor/clips-source
+          key: deps-${{ runner.os }}-${{ hashFiles('makefile') }}
+          restore-keys: deps-${{ runner.os }}-
+
+      - name: Report coverage of userfunctions.c
+        run: make coverage
+
+  # The other path in the README: link the Subversion that the machine has,
+  # and download none. The Subversion in Ubuntu is 1.14, which has every
+  # function the wrappers use, and it has ra_serf, so this also tests a build
+  # with the access methods the vendored one leaves out.
+  system-library:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Subversion from the distribution
+        run: sudo apt-get update && sudo apt-get install -y libsvn-dev libapr1-dev libaprutil1-dev pkg-config
+
+      - name: Cache the CLIPS download
+        uses: actions/cache@v4
+        with:
+          path: |
+            clips_core_source_642.tar.gz
+            vendor/clips-source
+          key: clips-${{ runner.os }}-${{ hashFiles('makefile') }}
+          restore-keys: clips-${{ runner.os }}-
+
+      # A distribution with a Subversion older than 1.12 fails the version
+      # check at compile time. That is the correct result for it. The step
+      # reports that and stops. It does not fail the workflow for a decision
+      # of the distribution.
+      - name: Build against the system library
+        run: |
+          v="$(pkg-config --modversion libsvn_client 2>/dev/null || svn --version --quiet)"
+          echo "system Subversion is $v"
+          case "$v" in
+            0.*|1.[0-9].*|1.1[01].*)
+              echo "too old for CLIPSVN (1.12 or later is needed); nothing to test here"
+              exit 0 ;;
+          esac
+          make SVN_SYSTEM=1
+          make SVN_SYSTEM=1 test

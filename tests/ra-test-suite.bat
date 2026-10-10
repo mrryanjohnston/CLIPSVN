@@ -1,0 +1,118 @@
+; ======================================================================
+; Repository access sessions: the repository by URL, without a working copy.
+; ======================================================================
+
+(println crlf "ra-test-suite")
+
+(defglobal ?*ra-repos* = (make-repos "ra"))
+
+(defglobal ?*ra-url* = (repos-url "ra"))
+
+(defglobal ?*ra-wc* = (make-wc "ra" "ra-wc"))
+
+(defglobal ?*session* = (svn-client-open-ra-session ?*ctx* ?*ra-url*))
+
+(deffunction ra-test-suite ()
+  (commit-file ?*ra-wc* "a.txt" (str-cat "hello" ?*nl* "world" ?*nl*) "add a")
+  (svn-client-mkdir ?*ctx* (str-cat ?*ra-wc* "/dir"))
+  (svn-client-commit ?*ctx* ?*ra-wc* "add dir")
+  (svn-client-propset-local ?*ctx* "custom:owner" "ada" (str-cat ?*ra-wc* "/a.txt"))
+  (svn-client-commit ?*ctx* ?*ra-wc* "set a property")
+
+
+  (expect-true "svn-client-open-ra-session answers a handle" (handlep ?*session*))
+  (expect-true "which svn-handle-kinds says belongs to the context" (member$ "ra session (context)" (svn-handle-kinds)))
+  (expect "svn-ra-get-latest-revnum" 3 (svn-ra-get-latest-revnum ?*session*))
+  (expect "svn-ra-get-uuid is the uuid of the repository" (svn-repos-uuid ?*ra-repos*) (svn-ra-get-uuid ?*session*))
+  (expect "svn-ra-get-repos-root is the URL" ?*ra-url* (svn-ra-get-repos-root ?*session*))
+  (expect "and so is svn-ra-get-session-url" ?*ra-url* (svn-ra-get-session-url ?*session*))
+  (expect "svn-ra-check-path finds a file" svn_node_file (svn-ra-check-path ?*session* "a.txt"))
+  (expect "a directory" svn_node_dir (svn-ra-check-path ?*session* "dir"))
+  (expect "the root" svn_node_dir (svn-ra-check-path ?*session* ""))
+  (expect "nothing" svn_node_none (svn-ra-check-path ?*session* "b.txt"))
+  (expect "and nothing in revision 1" svn_node_none (svn-ra-check-path ?*session* "dir" 1))
+
+  (bind ?stat (svn-ra-stat ?*session* "a.txt"))
+  (expect "svn-ra-stat is one dirent record" 1 (svn-records-count ?stat))
+  (expect "with the kind" svn_node_file (svn-record-field ?stat 0 kind))
+  (expect "the size" 12 (svn-record-field ?stat 0 size))
+  (expect "the revision it changed in" 3 (svn-record-field ?stat 0 created-rev))
+  (expect "has-props" TRUE (svn-record-field ?stat 0 has-props))
+  (expect "and the author" "tester" (svn-record-field ?stat 0 author))
+  (svn-records-free ?stat)
+  (bind ?stat (svn-ra-stat ?*session* "b.txt"))
+  (expect "and of nothing, no records" 0 (svn-records-count ?stat))
+  (svn-records-free ?stat)
+
+  (expect "svn-ra-get-file reads a file" (str-cat "hello" ?*nl* "world" ?*nl*) (svn-ra-get-file ?*session* "a.txt"))
+  (expect "at a revision too" (str-cat "hello" ?*nl* "world" ?*nl*) (svn-ra-get-file ?*session* "a.txt" 1))
+  (bind ?r (svn-ra-get-file ?*session* "dir"))
+  (expect "and refuses a directory" FALSE ?r)
+  (bind ?props (svn-ra-get-file-props ?*session* "a.txt"))
+  (expect "svn-ra-get-file-props has the property and the entry props" TRUE
+          (> (svn-records-count ?props) 1))
+  (expect "with custom:owner first" "custom:owner" (svn-record-field ?props 0 name))
+  (expect "and its value" "ada" (svn-record-field ?props 0 value))
+  (svn-records-free ?props)
+
+  (bind ?dir (svn-ra-get-dir ?*session* ""))
+  (expect "svn-ra-get-dir lists the root" 2 (svn-records-count ?dir))
+  (expect "in name order" "a.txt" (svn-record-field ?dir 0 path))
+  (expect "with the kind" svn_node_dir (svn-record-field ?dir 1 kind))
+  (expect "and the size of a file" 12 (svn-record-field ?dir 0 size))
+  (svn-records-free ?dir)
+  (bind ?dir (svn-ra-get-dir ?*session* "dir"))
+  (expect "and an empty directory is empty" 0 (svn-records-count ?dir))
+  (svn-records-free ?dir)
+
+  (bind ?log (svn-ra-get-log ?*session* ""))
+  (expect "svn-ra-get-log answers every revision" 3 (svn-records-count ?log))
+  (expect "newest first" 3 (svn-record-field ?log 0 revision))
+  (expect "with the message" "set a property" (svn-record-field ?log 0 message))
+  (bind ?changes (svn-log-changed-paths ?log))
+  (expect "and the changed paths" "/a.txt" (svn-record-field ?changes 0 path))
+  (expect "with props-modified" svn_tristate_true (svn-record-field ?changes 0 props-modified))
+  (svn-records-free ?log)
+  (bind ?log (svn-ra-get-log ?*session* "dir"))
+  (expect "a path restricts the log" 1 (svn-records-count ?log))
+  (svn-records-free ?log)
+  (bind ?log (svn-ra-get-log ?*session* (create$ "a.txt" "dir") 1 2 1))
+  (expect "a range and a limit" 1 (svn-records-count ?log))
+  (expect "oldest first for an ascending range" 1 (svn-record-field ?log 0 revision))
+  (svn-records-free ?log)
+
+  (expect "svn-ra-get-dated-revision of now is the latest" 3
+          (svn-ra-get-dated-revision ?*session* (svn-time-to-cstring (+ (svn-time-from-cstring (svn-ra-rev-prop ?*session* 3 "svn:date")) 60))))
+  (expect "svn-ra-rev-prop reads a revision property" "add a" (svn-ra-rev-prop ?*session* 1 "svn:log"))
+  (expect "and nil for one that is not set" nil (svn-ra-rev-prop ?*session* 1 "custom:none"))
+  (bind ?props (svn-ra-rev-proplist ?*session* 1))
+  (expect "svn-ra-rev-proplist has author, date and log" 3 (svn-records-count ?props))
+  (svn-records-free ?props)
+  (bind ?r (svn-ra-change-rev-prop ?*session* 1 "custom:note" "x"))
+  (expect "a change without the hook is a refusal" FALSE ?r)
+  (allow-revprop-changes ?*ra-repos*)
+  (expect "and with it" TRUE (svn-ra-change-rev-prop ?*session* 1 "custom:note" "x"))
+  (expect "which reads back" "x" (svn-ra-rev-prop ?*session* 1 "custom:note"))
+  (expect "and nil deletes" TRUE (svn-ra-change-rev-prop ?*session* 1 "custom:note" nil))
+  (expect "so it is gone" nil (svn-ra-rev-prop ?*session* 1 "custom:note"))
+
+  (expect "svn-ra-has-capability of depth" TRUE (svn-ra-has-capability ?*session* SVN_RA_CAPABILITY_DEPTH))
+  (expect "as a string too" TRUE (svn-ra-has-capability ?*session* "depth"))
+  (bind ?r (svn-ra-has-capability ?*session* "levitation"))
+  (expect "and a capability it does not know is a refusal" FALSE ?r)
+
+  (expect "svn-ra-reparent moves the session" TRUE (svn-ra-reparent ?*session* (str-cat ?*ra-url* "/dir")))
+  (expect "so the URL changes" (str-cat ?*ra-url* "/dir") (svn-ra-get-session-url ?*session*))
+  (expect "but the root does not" ?*ra-url* (svn-ra-get-repos-root ?*session*))
+  (expect "and the root path is now dir" svn_node_dir (svn-ra-check-path ?*session* ""))
+  (bind ?r (svn-ra-reparent ?*session* "file:///somewhere/else"))
+  (expect "a URL of another repository is a refusal" FALSE ?r)
+
+  (expect "svn-ra-session-free frees the session" TRUE (svn-ra-session-free ?*session*))
+  (bind ?r (svn-ra-get-latest-revnum ?*session*))
+  (expect "after which it is refused" FALSE ?r)
+  (bind ?r (svn-client-open-ra-session ?*ctx* "file:///tests/tmp/no-such-repository"))
+  (expect "a session on nothing is a refusal" FALSE ?r)
+  (svn-repos-free ?*ra-repos*))
+
+(ra-test-suite)

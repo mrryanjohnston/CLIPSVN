@@ -1,0 +1,13 @@
+#!/usr/bin/env sh
+# CLIPSVN @VERSION@
+#
+# The installed binary is in libexec. This wrapper starts it, and this wrapper
+# is the file on PATH. Subversion and APR are linked statically into the
+# binary, so the loader does not need a library path.
+case "$1" in
+  -v|-V|--version)
+    echo "CLIPSVN @VERSION@"
+    exit 0
+    ;;
+esac
+exec "@REAL@" "$@"

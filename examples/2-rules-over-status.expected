@@ -1,0 +1,9 @@
+# Each line must be a substring of some line of the output.
+4 changes in the working copy
+add: docs/guide.md
+commit: src/main.c
+ask: src/old.c
+leave: scratch.txt
+committed r2 with 2 approved changes
+2 left uncommitted
+done

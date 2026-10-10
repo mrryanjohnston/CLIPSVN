@@ -1,0 +1,12 @@
+# Each line must be a substring of some line of the output.
+the poem has 4 lines
+3 paths differ between r1 and r4
+the diff of the poem adds the last line: yes
+modified: poem.txt
+added: notes.txt
+deleted: draft.txt
+ada wrote 2 lines
+grace wrote 1 lines
+linus wrote 1 lines
+line 4 is the newest: r3 by linus: and so are you
+done
