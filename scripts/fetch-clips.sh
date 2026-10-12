@@ -37,12 +37,30 @@ die() { echo "fetch-clips: $*" >&2; exit 1; }
 
 fetch() {
     if command -v curl >/dev/null 2>&1; then
-        curl -fsSL -o "$2" "$1"
+        curl -fsSL --connect-timeout 30 --retry 3 --retry-all-errors -o "$2" "$1"
     elif command -v wget >/dev/null 2>&1; then
-        wget -q -O "$2" "$1"
+        wget -q --timeout=30 --tries=3 -O "$2" "$1"
     else
         die "neither curl nor wget is installed"
     fi
+}
+
+# SourceForge answers a download with a redirect to a mirror that it picks by
+# location, and it picks the same mirror again on a retry. So when that
+# mirror is down, the download fails however often it is tried, and other
+# mirrors are asked for by name.
+download() {
+    fetch "$1" "$2" && return 0
+    case "$1" in
+    *sourceforge.net/*)
+        for mirror in netactuate pilotfiber gigenet; do
+            echo "fetch-clips: the download failed, trying the $mirror mirror"
+            rm -f "$2"
+            fetch "$1/download?use_mirror=$mirror" "$2" && return 0
+        done
+        ;;
+    esac
+    return 1
 }
 
 sha256() {
@@ -69,7 +87,7 @@ tarball)
     if [ ! -f "$archive" ]; then
         echo "fetch-clips: downloading $url"
         mkdir -p "$(dirname "$archive")"
-        fetch "$url" "$archive.incoming" || die "download failed: $url"
+        download "$url" "$archive.incoming" || die "download failed: $url"
         mv "$archive.incoming" "$archive"
     else
         echo "fetch-clips: using the archive already at $archive"

@@ -126,8 +126,8 @@
 (bind ?*guard-result* (svn-repos-create ?*guard-url*))
 (expect "svn-repos-create refuses a URL" FALSE ?*guard-result*)
 
-(bind ?*guard-result* (svn-repos-create "tests/tmp/guard-other" "bdb"))
-(expect "and a filesystem type the build does not have" FALSE ?*guard-result*)
+(bind ?*guard-result* (svn-repos-create "tests/tmp/guard-other" "no-such-fs"))
+(expect "and a filesystem type no Subversion has" FALSE ?*guard-result*)
 
 (svn-records-free ?*guard-records*)
 (svn-repos-free ?*guard-repos*)

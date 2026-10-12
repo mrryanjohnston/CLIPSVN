@@ -35,9 +35,9 @@ sha256() {
 
 fetch() {
     if command -v curl >/dev/null 2>&1; then
-        curl -fsSL -o "$2" "$1"
+        curl -fsSL --connect-timeout 30 --retry 3 --retry-all-errors -o "$2" "$1"
     elif command -v wget >/dev/null 2>&1; then
-        wget -q -O "$2" "$1"
+        wget -q --timeout=30 --tries=3 -O "$2" "$1"
     else
         die "neither curl nor wget is installed"
     fi
